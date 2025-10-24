@@ -1,0 +1,14 @@
+services:
+  nes-emulator:
+    build: .
+    container_name: nes_emulator
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    environment:
+      - NGINX_HOST=localhost
+      - NGINX_PORT=80
+
+volumes:
+  nes_saves:
+    driver: local
