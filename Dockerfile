@@ -9,8 +9,8 @@ WORKDIR /usr/share/nginx/html
 # Copiar archivo HTML
 COPY index.html .
 
-# Crear directorio para ROMs y saves
-RUN mkdir -p /usr/share/nginx/html/roms /usr/share/nginx/html/saves
+# Crear directorio para ROMs
+RUN mkdir -p /usr/share/nginx/html/roms
 
 # Configurar permisos
 RUN chmod -R 755 /usr/share/nginx/html
