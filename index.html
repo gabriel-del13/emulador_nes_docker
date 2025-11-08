@@ -160,16 +160,20 @@
             transition: all 0.3s;
             text-transform: uppercase;
         }
-        .btn-start {
-            background: #27ae60;
-            color: white;
-        }
         .btn-stop {
             background: #e74c3c;
             color: white;
         }
         .btn-reset {
             background: #f39c12;
+            color: white;
+        }
+        .btn-save {
+            background: #3498db;
+            color: white;
+        }
+        .btn-load {
+            background: #9b59b6;
             color: white;
         }
         .button:hover {
@@ -202,6 +206,7 @@
             border-radius: 5px;
             outline: none;
             -webkit-appearance: none;
+            appearance: none;
             background: #ddd;
         }
         .volume-slider::-webkit-slider-thumb {
@@ -320,9 +325,12 @@
             </div>
             
             <div style="text-align: center;">
-                <button class="button btn-start" id="start-btn" disabled>▶ Iniciar</button>
                 <button class="button btn-stop" id="stop-btn" disabled>⏸ Pausar</button>
                 <button class="button btn-reset" id="reset-btn" disabled>🔄 Reiniciar</button>
+            </div>
+            <div style="text-align: center; margin-top: 10px;">
+                <button class="button btn-save" id="save-btn" disabled>💾 Guardar Estado</button>
+                <button class="button btn-load" id="load-btn" disabled>📂 Cargar Estado</button>
             </div>
             
         </div>
@@ -356,9 +364,10 @@
         const canvas = document.getElementById('nes-canvas');
         const ctx = canvas.getContext('2d');
         const romInput = document.getElementById('rom-file');
-        const startBtn = document.getElementById('start-btn');
         const stopBtn = document.getElementById('stop-btn');
         const resetBtn = document.getElementById('reset-btn');
+        const saveBtn = document.getElementById('save-btn');
+        const loadBtn = document.getElementById('load-btn');
         const statusDiv = document.getElementById('status');
         const muteBtn = document.getElementById('mute-btn');
         const muteBtnFs = document.getElementById('mute-btn-fs');
@@ -371,6 +380,7 @@
         let frameTimer = null;
         let romData = null;
         let currentRomName = '';
+        let isPaused = false;
         
         // Audio variables
         let audioContext = null;
@@ -489,9 +499,16 @@
                     });
                     
                     nes.loadROM(romData);
-                    startBtn.disabled = false;
                     resetBtn.disabled = false;
+                    saveBtn.disabled = false;
+                    loadBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    isPaused = false;
+                    updatePauseButton();
                     showStatus('✅ ROM cargada: ' + currentRomName);
+                    
+                    // Iniciar automáticamente el juego
+                    startGame();
                 } catch (error) {
                     showStatus('❌ Error al cargar la ROM: ' + error.message, true);
                 }
@@ -499,8 +516,10 @@
             reader.readAsBinaryString(file);
         });
         
-        // Controles del emulador
-        startBtn.addEventListener('click', function() {
+        // Función para iniciar el juego
+        function startGame() {
+            if (!nes) return;
+            
             if (!frameTimer) {
                 if (audioContext && audioContext.state === 'suspended') {
                     audioContext.resume();
@@ -509,35 +528,159 @@
                 frameTimer = setInterval(function() {
                     nes.frame();
                 }, 1000 / 60);
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
+                
+                isPaused = false;
+                updatePauseButton();
                 showStatus('🎮 Jugando...');
             }
-        });
+        }
         
-        stopBtn.addEventListener('click', function() {
+        // Función para pausar/reanudar el juego
+        function togglePause() {
+            if (!nes) return;
+            
             if (frameTimer) {
+                // Pausar
                 clearInterval(frameTimer);
                 frameTimer = null;
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
                 
                 if (audioContext && audioContext.state === 'running') {
                     audioContext.suspend();
                 }
                 
+                isPaused = true;
+                updatePauseButton();
                 showStatus('⏸ Juego pausado');
+            } else {
+                // Reanudar
+                startGame();
             }
-        });
+        }
+        
+        // Función para actualizar el texto del botón de pausar/reanudar
+        function updatePauseButton() {
+            if (isPaused) {
+                stopBtn.textContent = '▶ Reanudar';
+            } else {
+                stopBtn.textContent = '⏸ Pausar';
+            }
+        }
+        
+        stopBtn.addEventListener('click', togglePause);
         
         resetBtn.addEventListener('click', function() {
             if (nes && romData) {
+                // Detener el juego actual
+                if (frameTimer) {
+                    clearInterval(frameTimer);
+                    frameTimer = null;
+                }
+                
                 audioBuffer = [];
                 nes.loadROM(romData);
+                isPaused = false;
+                updatePauseButton();
+                
+                // Reiniciar automáticamente
+                startGame();
                 showStatus('🔄 Juego reiniciado');
             }
         });
         
+        // Funciones de guardado/carga de estados
+        async function saveState() {
+            if (!nes || !currentRomName) {
+                showStatus('❌ No hay juego cargado', true);
+                return;
+            }
+            
+            try {
+                // Obtener el estado del emulador
+                const state = nes.toJSON();
+                const saveData = {
+                    romName: currentRomName,
+                    state: state,
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Guardar en el servidor
+                const response = await fetch('/api/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(saveData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showStatus('💾 Estado guardado correctamente');
+                } else {
+                    showStatus('❌ Error al guardar estado: ' + (result.error || 'Error desconocido'), true);
+                }
+            } catch (error) {
+                console.error('Error al guardar estado:', error);
+                showStatus('❌ Error al guardar estado: ' + error.message, true);
+            }
+        }
+        
+        async function loadState() {
+            if (!nes || !currentRomName) {
+                showStatus('❌ No hay juego cargado', true);
+                return;
+            }
+            
+            try {
+                // Cargar desde el servidor
+                const response = await fetch(`/api/load/${encodeURIComponent(currentRomName)}`);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    showStatus('❌ ' + (result.error || 'Error al cargar estado'), true);
+                    return;
+                }
+                
+                const saveData = result.data;
+                
+                // Verificar que el estado guardado corresponde al juego actual
+                if (saveData.romName !== currentRomName) {
+                    showStatus('❌ El estado guardado no corresponde a este juego', true);
+                    return;
+                }
+                
+                // Detener el juego antes de cargar el estado
+                if (frameTimer) {
+                    clearInterval(frameTimer);
+                    frameTimer = null;
+                }
+                
+                // Cargar el estado
+                nes.fromJSON(saveData.state);
+                
+                // Limpiar el buffer de audio
+                audioBuffer = [];
+                
+                // Reanudar el audio si estaba activo
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                
+                // Reiniciar el juego automáticamente
+                isPaused = false;
+                updatePauseButton();
+                startGame();
+                
+                const saveDate = new Date(saveData.timestamp);
+                showStatus('📂 Estado cargado correctamente (guardado: ' + saveDate.toLocaleString() + ')');
+            } catch (error) {
+                console.error('Error al cargar estado:', error);
+                showStatus('❌ Error al cargar estado: ' + error.message, true);
+            }
+        }
+        
+        saveBtn.addEventListener('click', saveState);
+        loadBtn.addEventListener('click', loadState);
         
         // Control de mute
         function toggleMute() {
